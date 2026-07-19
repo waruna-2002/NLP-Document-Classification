@@ -38,18 +38,23 @@ def extract_text_from_txt(file_path):
         return ""
 
 def load_documents_from_folder(folder_path):
-    """It scans all the files inside a folder and extracts the text."""
+    """It scans all the files inside a folder and extracts the text with live tracking."""
     extracted_data = []
     
     if not os.path.exists(folder_path):
         print(f"Folder not found: {folder_path}")
         return extracted_data
 
+    print(" -> Scanning directory tree for files...")
     for root, dirs, files in os.walk(folder_path):
         for file in files:
             file_path = os.path.join(root, file)
             ext = file.split('.')[-1].lower()
             text = ""
+
+            # Live trace to identify exactly which file is being read
+            if ext in ['pdf', 'docx', 'txt']:
+                print(f"    [Reading File] -> {file}")
 
             if ext == 'pdf':
                 text = extract_text_from_pdf(file_path)
@@ -68,7 +73,6 @@ def load_documents_from_folder(folder_path):
     return extracted_data
 
 if __name__ == "__main__":
-    # Let's target the dataset folder to test it out.
     test_folder = "./dataset" 
     documents = load_documents_from_folder(test_folder)
     print(f"Successfully extracted text from {len(documents)} documents.")

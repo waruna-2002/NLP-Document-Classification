@@ -54,13 +54,7 @@ class TextPreprocessor:
         # Join back into a text string for ML vectorization compatibility
         return " ".join(processed_tokens)
 
-if __name__ == "__main__":
-    # Test script block with sample data
+# 💡 main.py එකට කෙලින්ම import කරලා ලෙහෙසියෙන් පාවිච්චි කරන්න හදපු Global Function එක
+def clean_and_preprocess_text(text):
     preprocessor = TextPreprocessor()
-    sample_raw_text = "The quick brown foxes are jumping over the lazy dogs! Report sent to manager@company.com at https://sltc.lk."
-    
-    cleaned_result = preprocessor.preprocess(sample_raw_text)
-    print("--- Raw Text ---")
-    print(sample_raw_text)
-    print("\n--- Processed Text ---")
-    print(cleaned_result)
+    return preprocessor.preprocess(text)

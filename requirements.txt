@@ -5,3 +5,4 @@ scipy
 pandas
 python-docx
 PyPDF2
+spacy

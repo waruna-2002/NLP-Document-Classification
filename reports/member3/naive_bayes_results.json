@@ -1,0 +1,24 @@
+{
+    "model": "TF-IDF + Multinomial Naive Bayes",
+    "best_parameters": {
+        "naive_bayes__alpha": 0.1,
+        "tfidf__ngram_range": [
+            1,
+            2
+        ]
+    },
+    "validation": {
+        "accuracy": 0.9857881136950905,
+        "precision": 0.9857061365731297,
+        "recall": 0.9857881136950905,
+        "f1_score": 0.9855586636570683,
+        "roc_auc": 0.9882897562015562
+    },
+    "test": {
+        "accuracy": 0.9832041343669251,
+        "precision": 0.9832844576720889,
+        "recall": 0.9832041343669251,
+        "f1_score": 0.9827613393949756,
+        "roc_auc": 0.9909814405113077
+    }
+}

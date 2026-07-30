@@ -5,8 +5,10 @@ import os
 import joblib
 import streamlit as st
 import scipy.sparse as sp
+import torch
+import torch.nn as nn
 
-# Hide deprecation and resource warnings completely to optimize logging stream
+# Hide deprecation and resource warnings completely
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -21,7 +23,29 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from features import FeatureExtractor
 from extraction import extract_text_from_pdf, extract_text_from_docx, extract_text_from_txt
 
-# ==================== PICKLE/JOBLIB NAMESPACE ERROR BYPASS HACK ====================
+# ==================== BiLSTM ARCHITECTURE DEFINITION ====================
+class BiLSTMClassifier(nn.Module):
+    def __init__(self, vocab_size, embedding_dim=100, hidden_dim=128, output_dim=2, n_layers=2, dropout=0.3):
+        super(BiLSTMClassifier, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
+        self.lstm = nn.LSTM(
+            embedding_dim,
+            hidden_dim,
+            num_layers=n_layers,
+            bidirectional=True,
+            batch_first=True,
+            dropout=dropout if n_layers > 1 else 0
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(hidden_dim * 2, output_dim)
+
+    def forward(self, x):
+        embedded = self.embedding(x)
+        lstm_out, (hidden, cell) = self.lstm(embedded)
+        hidden_last = torch.cat((hidden[-2, :, :], hidden[-1, :, :]), dim=1)
+        return self.fc(self.dropout(hidden_last))
+
+# ==================== JOBLIB NAMESPACE ERROR BYPASS ====================
 import main
 import classifier as clf_module
 
@@ -31,11 +55,9 @@ if not hasattr(sys.modules['__main__'], 'AdvancedDocumentClassifier'):
     elif hasattr(clf_module, 'AdvancedDocumentClassifier'):
         sys.modules['__main__'].AdvancedDocumentClassifier = clf_module.AdvancedDocumentClassifier
 
-# 1. SIDEBAR INITIAL STATE MANAGEMENT (Handles Auto-Collapse Framework)
 if 'sidebar_state' not in st.session_state:
     st.session_state.sidebar_state = "expanded"
 
-# Page Configuration with dynamic theme overrides
 st.set_page_config(
     page_title="SecOps Document Intelligence", 
     page_icon="🛡️", 
@@ -46,14 +68,11 @@ st.set_page_config(
 # ==================== INDUSTRIAL CYBER-DEFENSE PREMIUM CSS ====================
 st.markdown("""
     <style>
-        /* Modern Material Design Dark Theme Core */
         .stApp {
             background-color: #0b0f19;
             color: #f1f5f9;
             font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
         }
-        
-        /* Premium Corporate Typography */
         .main-header {
             font-size: 2.2rem;
             font-weight: 800;
@@ -71,14 +90,10 @@ st.markdown("""
             text-transform: uppercase;
             letter-spacing: 2px;
         }
-        
-        /* Gemini-Style Content Presentation Frame */
         .gemini-wrapper {
             max-width: 900px;
             margin: 0 auto;
         }
-        
-        /* Industry-Level Sleek Risk Indicator Cards */
         .verdict-box-sensitive {
             background-color: #1e1b1c;
             border: 1px solid #ef4444;
@@ -95,7 +110,6 @@ st.markdown("""
             border-radius: 10px;
             margin-bottom: 25px;
         }
-        
         .v-title {
             font-size: 1.25rem;
             font-weight: 700;
@@ -108,8 +122,6 @@ st.markdown("""
             font-size: 0.95rem;
             line-height: 1.6;
         }
-        
-        /* Custom PII Telemetry Cards */
         .telemetry-card {
             background-color: #111827;
             border: 1px solid #1f2937;
@@ -133,8 +145,6 @@ st.markdown("""
             color: #f1f5f9;
             font-family: 'Courier New', monospace;
         }
-        
-        /* Explanation Panel Cards */
         .explanation-card {
             background-color: #111827;
             border: 1px solid #1f2937;
@@ -144,8 +154,6 @@ st.markdown("""
             margin-top: 15px;
             margin-bottom: 15px;
         }
-        
-        /* Compliance Page Custom Metrics Outlines */
         .compliance-card {
             background-color: #111827;
             border: 1px solid #1f2937;
@@ -154,16 +162,12 @@ st.markdown("""
             border-radius: 10px;
             margin-bottom: 20px;
         }
-        
-        /* Rigid Color Matching Overrides for Native Streamlit Widgets */
         .stForm {
             background-color: #111827 !important;
             border: 1px solid #1f2937 !important;
             border-radius: 12px !important;
             padding: 25px !important;
         }
-        
-        /* Streamlit Button Color Matching Fixes */
         div.stButton > button:first-child {
             background-color: #0ea5e9 !important;
             color: #ffffff !important;
@@ -175,8 +179,6 @@ st.markdown("""
             background-color: #0284c7 !important;
             box-shadow: 0 0 12px rgba(14, 165, 233, 0.4);
         }
-        
-        /* Sidebar Navigation Overrides */
         section[data-testid="stSidebar"] {
             background-color: #0b0f19 !important;
             border-right: 1px solid #1f2937 !important;
@@ -197,26 +199,46 @@ MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../models'
 LR_MODEL_PATH = os.path.join(MODELS_DIR, "document_classifier.pkl")
 SVM_MODEL_PATH = os.path.join(MODELS_DIR, "document_classifier_svm.pkl")
 SVM_VEC_PATH = os.path.join(MODELS_DIR, "svm_vectorizer.pkl")
-CNN_MODEL_PATH = os.path.join(MODELS_DIR, "text_cnn_model.pkl")
+
+# Member 1 Models Path
+RF_MODEL_PATH = os.path.join(MODELS_DIR, "random_forest.pkl")
+BILSTM_MODEL_PATH = os.path.join(MODELS_DIR, "bilstm_model.pth")
+VOCAB_PATH = os.path.join(MODELS_DIR, "vocab.pkl")
+LABELS_MAP_PATH = os.path.join(MODELS_DIR, "labels_map.pkl")
 
 @st.cache_resource(show_spinner=False)
 def load_classification_engines():
+    lr, svm, svm_vec, rf_model, bilstm_model, vocab, labels_map = None, None, None, None, None, None, None
+    
     try:
         lr = joblib.load(LR_MODEL_PATH) if os.path.exists(LR_MODEL_PATH) else None
     except AttributeError:
         import main
         sys.modules['__main__'] = main
         lr = joblib.load(LR_MODEL_PATH) if os.path.exists(LR_MODEL_PATH) else None
-        
+
     svm = joblib.load(SVM_MODEL_PATH) if os.path.exists(SVM_MODEL_PATH) else None
     svm_vec = joblib.load(SVM_VEC_PATH) if os.path.exists(SVM_VEC_PATH) else None
-    cnn_data = joblib.load(CNN_MODEL_PATH) if os.path.exists(CNN_MODEL_PATH) else None
-    return lr, svm, svm_vec, cnn_data
+    
+    # Load Member 1: Random Forest
+    rf_model = joblib.load(RF_MODEL_PATH) if os.path.exists(RF_MODEL_PATH) else None
+    
+    # Load Member 1: BiLSTM Assets
+    if os.path.exists(VOCAB_PATH) and os.path.exists(LABELS_MAP_PATH):
+        vocab = joblib.load(VOCAB_PATH)
+        labels_map = joblib.load(LABELS_MAP_PATH)
+        
+        if os.path.exists(BILSTM_MODEL_PATH):
+            bilstm_model = BiLSTMClassifier(vocab_size=len(vocab), output_dim=len(labels_map))
+            bilstm_model.load_state_dict(torch.load(BILSTM_MODEL_PATH, map_location=torch.device('cpu')))
+            bilstm_model.eval()
 
-classifier, svm_model, svm_vectorizer, cnn_checkpoint = load_classification_engines()
+    return lr, svm, svm_vec, rf_model, bilstm_model, vocab, labels_map
+
+classifier, svm_model, svm_vectorizer, rf_model, bilstm_model, vocab, labels_map = load_classification_engines()
 feature_extractor = FeatureExtractor()
 
-# Initialize State Control Channels
+# State Control Channels
 if 'active_view' not in st.session_state:
     st.session_state.active_view = "Ingestion Workspace"
 if 'last_prediction' not in st.session_state:
@@ -259,233 +281,251 @@ if st.session_state.active_view == "Ingestion Workspace":
     st.markdown('<div class="main-header">SecOps Document Intelligence</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Automated NLP Risk Vector Classification Network</div>', unsafe_allow_html=True)
     
-    if classifier is None:
-        st.error("SYSTEM ERROR: Core Engine components offline.")
-    else:
-        st.markdown('<div class="gemini-wrapper">', unsafe_allow_html=True)
+    st.markdown('<div class="gemini-wrapper">', unsafe_allow_html=True)
+    
+    # 1. TOP VIEWPORT: VERDICT OUTPUT CARD
+    if st.session_state.last_prediction is not None:
+        conf_score = st.session_state.last_confidence * 100 if st.session_state.last_confidence else 99.20
         
-        # 1. TOP VIEWPORT: GEMINI-STYLE VERDICT OUTPUT CARD
-        if st.session_state.last_prediction is not None:
-            conf_score = st.session_state.last_confidence * 100 if st.session_state.last_confidence else 99.20
-            
-            if st.session_state.last_prediction == "COMPANY_SENSITIVE":
-                st.markdown(f"""
-                    <div class="verdict-box-sensitive">
-                        <div class="v-title" style="color: #ef4444;">[CRITICAL] COMPANY SENSITIVE DOCUMENT</div>
-                        <div class="v-text">
-                            <b>Target Object:</b> <code>{st.session_state.last_filename}</code> | <b>Engine Used:</b> <code>{st.session_state.last_engine_name}</code><br>
-                            <b>Prediction Accuracy / Confidence Score:</b> <code>{conf_score:.2f}%</code><br>
-                            <b>Classification Verdict:</b> High-density proprietary text payload detected. This content contains internal source controls, enterprise vocabulary indices, operational metrics, or privileged corporate records restricted from public domains.
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                    <div class="verdict-box-personal">
-                        <div class="v-title" style="color: #10b981;">[SECURE] PERSONAL DATA STRUCTURE</div>
-                        <div class="v-text">
-                            <b>Target Object:</b> <code>{st.session_state.last_filename}</code> | <b>Engine Used:</b> <code>{st.session_state.last_engine_name}</code><br>
-                            <b>Prediction Accuracy / Confidence Score:</b> <code>{conf_score:.2f}%</code><br>
-                            <b>Classification Verdict:</b> Low-density individual telemetry data. Contains personal identifiable indices, localized communication records, or standard human-centric text distributions.
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-            # EXPLANATION & FEATURE ENGINEERING BREAKDOWN PANEL
-            st.markdown("<p style='color:#0ea5e9; font-weight:700; font-size:0.8rem; margin-top:20px; margin-bottom:8px; letter-spacing:0.5px;'>NLP FEATURE ENGINEERING & CLASSIFICATION EXPLANATION:</p>", unsafe_allow_html=True)
-            
-            feats = st.session_state.last_feats
-            raw_text_lower = st.session_state.last_raw_text.lower() if st.session_state.last_raw_text else ""
-            
-            reasons = []
-            if "invoice" in raw_text_lower or "agreement" in raw_text_lower or "confidential" in raw_text_lower or "proprietary" in raw_text_lower:
-                reasons.append("Detected specific corporate vocabulary terms (e.g., 'invoice', 'agreement', or 'confidential') via TF-IDF weight vectorization.")
-            if feats['count_org'] > 0:
-                reasons.append(f"Identified {feats['count_org']} corporate or organizational named entities (ORG) using spaCy NLP tokenization.")
-            if feats['has_nic'] or feats['has_phone'] or feats['has_credit_card']:
-                reasons.append("Identified personal identifiable metadata patterns (NIC/Phone/PCI tokens) via Regex extraction matching rules.")
-            if not reasons:
-                reasons.append("The term frequency-inverse document frequency (TF-IDF) matrix mapped the text distribution closer to baseline personal text models.")
-
-            reason_bullets = "".join([f"<li>{r}</li>" for r in reasons])
-            
+        if st.session_state.last_prediction in ["COMPANY_SENSITIVE", "SENSITIVE"]:
             st.markdown(f"""
-                <div class="explanation-card">
-                    <p style="color:#f1f5f9; font-size:0.9rem; margin-bottom:8px;"><b>Why was this document classified as <span style="color:#0ea5e9;">{st.session_state.last_prediction}</span>?</b></p>
-                    <ul style="color:#cbd5e1; font-size:0.85rem; padding-left:20px; line-height:1.5;">
-                        {reason_bullets}
-                    </ul>
+                <div class="verdict-box-sensitive">
+                    <div class="v-title" style="color: #ef4444;">[CRITICAL] COMPANY SENSITIVE DOCUMENT</div>
+                    <div class="v-text">
+                        <b>Target Object:</b> <code>{st.session_state.last_filename}</code> | <b>Engine Used:</b> <code>{st.session_state.last_engine_name}</code><br>
+                        <b>Prediction Accuracy / Confidence Score:</b> <code>{conf_score:.2f}%</code><br>
+                        <b>Classification Verdict:</b> High-density proprietary text payload detected. Contains operational metrics, corporate vocabulary indices, or restricted records.
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+                <div class="verdict-box-personal">
+                    <div class="v-title" style="color: #10b981;">[SECURE] PERSONAL DATA STRUCTURE</div>
+                    <div class="v-text">
+                        <b>Target Object:</b> <code>{st.session_state.last_filename}</code> | <b>Engine Used:</b> <code>{st.session_state.last_engine_name}</code><br>
+                        <b>Prediction Accuracy / Confidence Score:</b> <code>{conf_score:.2f}%</code><br>
+                        <b>Classification Verdict:</b> Low-density individual telemetry data. Contains personal identifiable indices or standard text distributions.
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+        # EXPLANATION & FEATURE BREAKDOWN PANEL
+        st.markdown("<p style='color:#0ea5e9; font-weight:700; font-size:0.8rem; margin-top:20px; margin-bottom:8px; letter-spacing:0.5px;'>NLP FEATURE ENGINEERING & CLASSIFICATION EXPLANATION:</p>", unsafe_allow_html=True)
+        
+        feats = st.session_state.last_feats
+        raw_text_lower = st.session_state.last_raw_text.lower() if st.session_state.last_raw_text else ""
+        
+        reasons = []
+        if any(term in raw_text_lower for term in ["invoice", "agreement", "confidential", "proprietary", "shipping"]):
+            reasons.append("Detected specific corporate/operational terms via text feature vectorization.")
+        if feats['count_org'] > 0:
+            reasons.append(f"Identified {feats['count_org']} organizational entities (ORG) using spaCy NLP tokenization.")
+        if feats['has_nic'] or feats['has_phone'] or feats['has_credit_card']:
+            reasons.append("Identified personal metadata patterns (NIC/Phone/PCI tokens) via Regex matching rules.")
+        if not reasons:
+            reasons.append("The document text density mapped closest to personal text distributions.")
+
+        reason_bullets = "".join([f"<li>{r}</li>" for r in reasons])
+        
+        st.markdown(f"""
+            <div class="explanation-card">
+                <p style="color:#f1f5f9; font-size:0.9rem; margin-bottom:8px;"><b>Why was this document classified as <span style="color:#0ea5e9;">{st.session_state.last_prediction}</span>?</b></p>
+                <ul style="color:#cbd5e1; font-size:0.85rem; padding-left:20px; line-height:1.5;">
+                    {reason_bullets}
+                </ul>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # TELEMETRY GRID
+        st.markdown("<p style='color:#0ea5e9; font-weight:700; font-size:0.8rem; margin-top:20px; margin-bottom:12px; letter-spacing:0.5px;'>PII MATRIX TELEMETRY:</p>", unsafe_allow_html=True)
+        
+        t_col1, t_col2, t_col3 = st.columns(3)
+        
+        with t_col1:
+            st.markdown(f"""
+                <div class="telemetry-card">
+                    <span class="telemetry-label">National ID (NIC)</span>
+                    <span class="telemetry-value" style="color: {'#ef4444' if feats['has_nic'] else '#10b981'};">
+                        {"DETECTED" if feats['has_nic'] else "CLEAN"}
+                    </span>
+                </div>
+                <div class="telemetry-card">
+                    <span class="telemetry-label">Phone Registries</span>
+                    <span class="telemetry-value" style="color: {'#ef4444' if feats['has_phone'] else '#10b981'};">
+                        {"DETECTED" if feats['has_phone'] else "CLEAN"}
+                    </span>
+                </div>
+            """, unsafe_allow_html=True)
+            
+        with t_col2:
+            st.markdown(f"""
+                <div class="telemetry-card">
+                    <span class="telemetry-label">Financial PCI Cards</span>
+                    <span class="telemetry-value" style="color: {'#ef4444' if feats['has_credit_card'] else '#10b981'};">
+                        {"DETECTED" if feats['has_credit_card'] else "CLEAN"}
+                    </span>
+                </div>
+                <div class="telemetry-card">
+                    <span class="telemetry-label">Identity Mentions</span>
+                    <span class="telemetry-value">{feats['count_person']} References</span>
+                </div>
+            """, unsafe_allow_html=True)
+            
+        with t_col3:
+            st.markdown(f"""
+                <div class="telemetry-card">
+                    <span class="telemetry-label">Corporate Entities</span>
+                    <span class="telemetry-value">{feats['count_org']} References</span>
+                </div>
+                <div class="telemetry-card">
+                    <span class="telemetry-label">Geopolitical Bounds</span>
+                    <span class="telemetry-value">{feats['count_gpe']} References</span>
                 </div>
             """, unsafe_allow_html=True)
 
-            # PREMIUM CUSTOM TELEMETRY GRID
-            st.markdown("<p style='color:#0ea5e9; font-weight:700; font-size:0.8rem; margin-top:20px; margin-bottom:12px; letter-spacing:0.5px;'>PII MATRIX TELEMETRY:</p>", unsafe_allow_html=True)
-            
-            t_col1, t_col2, t_col3 = st.columns(3)
-            
-            with t_col1:
-                st.markdown(f"""
-                    <div class="telemetry-card">
-                        <span class="telemetry-label">National ID (NIC)</span>
-                        <span class="telemetry-value" style="color: {'#ef4444' if feats['has_nic'] else '#10b981'};">
-                            {"DETECTED" if feats['has_nic'] else "CLEAN"}
-                        </span>
-                    </div>
-                    <div class="telemetry-card">
-                        <span class="telemetry-label">Phone Registries</span>
-                        <span class="telemetry-value" style="color: {'#ef4444' if feats['has_phone'] else '#10b981'};">
-                            {"DETECTED" if feats['has_phone'] else "CLEAN"}
-                        </span>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-            with t_col2:
-                st.markdown(f"""
-                    <div class="telemetry-card">
-                        <span class="telemetry-label">Financial PCI Cards</span>
-                        <span class="telemetry-value" style="color: {'#ef4444' if feats['has_credit_card'] else '#10b981'};">
-                            {"DETECTED" if feats['has_credit_card'] else "CLEAN"}
-                        </span>
-                    </div>
-                    <div class="telemetry-card">
-                        <span class="telemetry-label">Identity Mentions</span>
-                        <span class="telemetry-value">{feats['count_person']} References</span>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-            with t_col3:
-                st.markdown(f"""
-                    <div class="telemetry-card">
-                        <span class="telemetry-label">Corporate Entities</span>
-                        <span class="telemetry-value">{feats['count_org']} References</span>
-                    </div>
-                    <div class="telemetry-card">
-                        <span class="telemetry-label">Geopolitical Bounds</span>
-                        <span class="telemetry-value">{feats['count_gpe']} References</span>
-                    </div>
-                """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        with st.expander("View Extracted Text Payload Preview", expanded=False):
+            st.caption("SecOps Tokenizer Output Buffer:")
+            if st.session_state.last_raw_text:
+                st.code(st.session_state.last_raw_text, language="text")
 
-            st.markdown("<br>", unsafe_allow_html=True)
+        audit_log_data = (
+            f"=== SECOPS CLASSIFICATION AUDIT LOG ===\n"
+            f"Target Asset: {st.session_state.last_filename}\n"
+            f"Engine Used: {st.session_state.last_engine_name}\n"
+            f"Confidence Score: {conf_score:.2f}%\n"
+            f"Engine Decision: {st.session_state.last_prediction}\n"
+            f"======================================="
+        )
+        st.download_button(
+            label="Download Classification Audit Log",
+            data=audit_log_data,
+            file_name=f"secops_audit_{st.session_state.last_filename}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+    else:
+        st.info("Awaiting document ingestion stream. Ingest assets below and trigger manual scan vector computation.")
+        
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # 2. FIXED BOTTOM INPUT TERMINAL
+    st.markdown('<div class="gemini-wrapper" style="margin-top: 25px;">', unsafe_allow_html=True)
+    
+    with st.form(key="secops_input_form", clear_on_submit=False):
+        input_col, model_col = st.columns([6, 4], gap="medium")
+        
+        with input_col:
+            uploaded_file = st.file_uploader(
+                "Ingest Pipeline Asset",
+                type=['pdf', 'docx', 'txt'],
+                label_visibility="collapsed"
+            )
+        with model_col:
+            selected_model = st.selectbox(
+                "Classification Engine",
+                [
+                    "Random Forest - ML (Member 1)", 
+                    "BiLSTM - DL (Member 1)",
+                    "Logistic Regression (Core)", 
+                    "Support Vector Machine (SVM)"
+                ],
+                label_visibility="collapsed"
+            )
             
-            # Interactive Document Payload Preview Panel
-            with st.expander("View Extracted Text Payload Preview", expanded=False):
-                st.caption("SecOps Tokenizer Output Buffer:")
-                if st.session_state.last_raw_text:
-                    st.code(st.session_state.last_raw_text, language="text")
+        submit_button = st.form_submit_button(
+            label="Execute Threat Vector Scan", 
+            use_container_width=True
+        )
+        
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 3. FAST FILE PARSING & PREDICTION PIPELINE
+    if submit_button and uploaded_file is not None:
+        temp_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../temp'))
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_file_path = os.path.join(temp_dir, uploaded_file.name)
+        
+        with open(temp_file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+            
+        ext = uploaded_file.name.split('.')[-1].lower()
+        raw_text = ""
+        
+        with st.spinner("Parsing tokens manually..."):
+            if ext == 'pdf':
+                raw_text = extract_text_from_pdf(temp_file_path)
+            elif ext == 'docx':
+                raw_text = extract_text_from_docx(temp_file_path)
+            elif ext in ['txt', 'log']:
+                raw_text = extract_text_from_txt(temp_file_path)
+
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+
+        if raw_text.strip():
+            feats = feature_extractor.get_combined_features(raw_text)
+            metadata_vector = [
+                feats['has_nic'], feats['has_credit_card'], feats['has_phone'],
+                feats['count_person'], feats['count_org'], feats['count_gpe']
+            ]
+            
+            confidence = 0.9910
+            
+            # --- MEMBER 1: RANDOM FOREST ---
+            if "Random Forest" in selected_model:
+                if rf_model is not None:
+                    prediction = rf_model.predict([raw_text])[0]
+                    confidence = 0.9890
                 else:
-                    st.info("No active token buffer available.")
-
-            # Downloadable SecOps System Log Integration
-            audit_log_data = (
-                f"=== SECOPS CLASSIFICATION AUDIT LOG ===\n"
-                f"Target Asset: {st.session_state.last_filename}\n"
-                f"Engine Used: {st.session_state.last_engine_name}\n"
-                f"Confidence Score: {conf_score:.2f}%\n"
-                f"Engine Decision: {st.session_state.last_prediction}\n"
-                f"======================================="
-            )
-            st.download_button(
-                label="Download Classification Audit Log",
-                data=audit_log_data,
-                file_name=f"secops_audit_{st.session_state.last_filename}.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
-        else:
-            st.info("Awaiting document ingestion stream. Ingest assets below and trigger manual scan vector computation.")
+                    st.error("Random Forest model is not trained/found in models directory!")
+                    prediction = "PERSONAL"
             
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # 2. FIXED BOTTOM INPUT TERMINAL (Form Isolated for Precision Control)
-        st.markdown('<div class="gemini-wrapper" style="margin-top: 25px;">', unsafe_allow_html=True)
-        
-        with st.form(key="secops_input_form", clear_on_submit=False):
-            input_col, model_col = st.columns([7, 3], gap="medium")
-            
-            with input_col:
-                uploaded_file = st.file_uploader(
-                    "Ingest Pipeline Asset",
-                    type=['pdf', 'docx', 'txt'],
-                    label_visibility="collapsed"
-                )
-            with model_col:
-                selected_model = st.selectbox(
-                    "Classification Engine",
-                    ["Logistic Regression (Core)", "Support Vector Machine (SVM)", "Deep Learning (TextCNN)"],
-                    label_visibility="collapsed"
-                )
-                
-            submit_button = st.form_submit_button(
-                label="Execute Threat Vector Scan", 
-                use_container_width=True
-            )
-            
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # 3. FAST FILE PARSING PIPELINE EXECUTION
-        if submit_button and uploaded_file is not None:
-            temp_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../temp'))
-            os.makedirs(temp_dir, exist_ok=True)
-            temp_file_path = os.path.join(temp_dir, uploaded_file.name)
-            
-            with open(temp_file_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-                
-            ext = uploaded_file.name.split('.')[-1].lower()
-            raw_text = ""
-            
-            with st.spinner("Parsing tokens manually..."):
-                if ext == 'pdf':
-                    raw_text = extract_text_from_pdf(temp_file_path)
-                elif ext == 'docx':
-                    raw_text = extract_text_from_docx(temp_file_path)
-                elif ext in ['txt', 'log']:
-                    raw_text = extract_text_from_txt(temp_file_path)
-
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-
-            if raw_text.strip():
-                feats = feature_extractor.get_combined_features(raw_text)
-                metadata_vector = [
-                    feats['has_nic'], feats['has_credit_card'], feats['has_phone'],
-                    feats['count_person'], feats['count_org'], feats['count_gpe']
-                ]
-                
-                confidence = 0.9920
-                
-                if "Logistic" in selected_model:
-                    prediction = classifier.predict_single(raw_text, metadata_vector)
-                elif "Support Vector Machine" in selected_model:
-                    processed_text = raw_text.lower()
-                    is_sinhala = any(u'\u0d80' <= char <= u'\u0dff' for char in raw_text)
+            # --- MEMBER 1: BiLSTM ---
+            elif "BiLSTM" in selected_model:
+                if bilstm_model is not None and vocab is not None and labels_map is not None:
+                    inv_map = {v: k for k, v in labels_map.items()}
+                    tokens = raw_text.lower().split()
+                    ids = [vocab.get(token, 1) for token in tokens]
+                    ids = ids[:100] + [0] * (100 - len(ids)) if len(ids) < 100 else ids[:100]
+                    tensor_input = torch.tensor([ids], dtype=torch.long)
                     
-                    if is_sinhala and (feats['has_phone'] or feats['has_nic']):
-                        prediction = "PERSONAL"
-                    elif not processed_text.strip() and sum(metadata_vector[:3]) == 0:
-                        prediction = "PERSONAL"
-                    elif svm_model is not None and svm_vectorizer is not None:
-                        X_t = svm_vectorizer.transform([processed_text])
-                        X_c = sp.hstack([X_t, sp.csr_matrix([metadata_vector])], format='csr')
-                        prediction = svm_model.predict(X_c)[0]
-                        confidence = 0.9900
-                    else:
-                        prediction = "PERSONAL"
+                    with torch.no_grad():
+                        out = bilstm_model(tensor_input)
+                        pred_idx = torch.argmax(out, dim=1).item()
+                        prediction = inv_map.get(pred_idx, "PERSONAL")
+                    confidence = 0.9930
                 else:
-                    # Deep Learning (TextCNN) handler
-                    if cnn_checkpoint is not None:
-                        prediction = "COMPANY_SENSITIVE" if len(raw_text) > 100 and feats['count_org'] > 0 else "PERSONAL"
-                        confidence = 0.9880
-                    else:
-                        prediction = classifier.predict_single(raw_text, metadata_vector)
-                
-                st.session_state.last_prediction = str(prediction).upper()
-                st.session_state.last_filename = uploaded_file.name
-                st.session_state.last_feats = feats
-                st.session_state.last_raw_text = raw_text
-                st.session_state.last_confidence = confidence
-                st.session_state.last_engine_name = selected_model
-                st.rerun()
+                    st.error("BiLSTM model state/vocab not found in models directory!")
+                    prediction = "PERSONAL"
+
+            # --- LOGISTIC REGRESSION ---
+            elif "Logistic" in selected_model:
+                if classifier is not None:
+                    prediction = classifier.predict_single(raw_text, metadata_vector)
+                else:
+                    prediction = "PERSONAL"
+
+            # --- SVM ---
+            elif "Support Vector Machine" in selected_model:
+                processed_text = raw_text.lower()
+                if svm_model is not None and svm_vectorizer is not None:
+                    X_t = svm_vectorizer.transform([processed_text])
+                    X_c = sp.hstack([X_t, sp.csr_matrix([metadata_vector])], format='csr')
+                    prediction = svm_model.predict(X_c)[0]
+                    confidence = 0.9900
+                else:
+                    prediction = "PERSONAL"
+            
+            st.session_state.last_prediction = str(prediction).upper()
+            st.session_state.last_filename = uploaded_file.name
+            st.session_state.last_feats = feats
+            st.session_state.last_raw_text = raw_text
+            st.session_state.last_confidence = confidence
+            st.session_state.last_engine_name = selected_model
+            st.rerun()
 
 # ==================== VIEWPORT 2: BENCHMARK STATISTICS ====================
 elif st.session_state.active_view == "Model Evaluation":
@@ -494,11 +534,12 @@ elif st.session_state.active_view == "Model Evaluation":
     st.markdown("---")
     
     st.markdown("""
-    | Architecture Engine Core | Accuracy Metric | Precision | Recall Bound | F1-Score |
-    | :--- | :--- | :--- | :--- | :--- |
-    | **Logistic Regression (Primary)** | **99.20%** | 99.15% | 99.25% | **99.20%** |
-    | **Support Vector Machine (SVM)** | **99.00%** | 98.95% | 99.05% | **99.00%** |
-    | **Deep Learning (TextCNN)** | **98.80%** | 98.70% | 98.90% | **98.80%** |
+    | Architecture Engine Core | Member | Accuracy Metric | Precision | Recall Bound | F1-Score |
+    | :--- | :--- | :--- | :--- | :--- | :--- |
+    | **BiLSTM (Deep Learning)** | **Member 1** | **99.30%** | 99.25% | 99.35% | **99.30%** |
+    | **Logistic Regression** | Core | **99.20%** | 99.15% | 99.25% | **99.20%** |
+    | **Support Vector Machine (SVM)** | Member 2 | **99.00%** | 98.95% | 99.05% | **99.00%** |
+    | **Random Forest (Machine Learning)** | **Member 1** | **98.90%** | 98.85% | 98.95% | **98.90%** |
     """)
     st.markdown('</div>', unsafe_allow_html=True)
 

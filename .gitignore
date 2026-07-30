@@ -6,3 +6,15 @@ temp/
 .DS_Store
 .env
 # models/
+# Member 3 local files
+.venv/
+__pycache__/
+*.pyc
+models/member3/bert_model/
+models/member3/bert_checkpoints/
+models/member3/**/*.safetensors
+models/member3/**/*.bin
+models/member3/**/*.pt
+models/member3/**/*.pth
+"@"
+

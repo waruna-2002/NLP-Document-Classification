@@ -1,0 +1,27 @@
+{
+    "model": "Linear SVM",
+    "best_parameters": {
+        "svm__C": 0.5,
+        "tfidf__max_features": 10000,
+        "tfidf__min_df": 1,
+        "tfidf__ngram_range": [
+            1,
+            2
+        ]
+    },
+    "best_cv_f1": 0.949990603711534,
+    "validation": {
+        "accuracy": 0.9961190168175937,
+        "precision": 0.9696969696969697,
+        "recall": 1.0,
+        "f1_score": 0.9846153846153847,
+        "roc_auc": 0.9999384539635647
+    },
+    "test": {
+        "accuracy": 0.9832041343669251,
+        "precision": 0.9772727272727273,
+        "recall": 0.8865979381443299,
+        "f1_score": 0.9297297297297298,
+        "roc_auc": 0.9938174785667515
+    }
+}

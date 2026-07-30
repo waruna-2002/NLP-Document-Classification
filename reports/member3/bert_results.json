@@ -1,0 +1,15 @@
+{
+    "model": "BERT",
+    "pretrained_model": "bert-base-uncased",
+    "learning_rate": 2e-05,
+    "batch_size": 16,
+    "epochs": 3,
+    "max_length": 128,
+    "test": {
+        "accuracy": 0.7209302325581395,
+        "precision": 0.12578616352201258,
+        "recall": 0.20618556701030927,
+        "f1_score": 0.15625,
+        "roc_auc": 0.6132726248305898
+    }
+}

@@ -6,3 +6,11 @@ temp/
 .DS_Store
 .env
 # models/
+# Member 3 environment
+.venv/
+__pycache__/
+*.pyc
+
+# Large BERT model files
+models/member3/bert_model/
+models/member3/bert_checkpoints/
